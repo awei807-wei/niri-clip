@@ -25,8 +25,8 @@ use wayland_protocols_wlr::data_control::v1::client::zwlr_data_control_offer_v1:
     self, ZwlrDataControlOfferV1,
 };
 
-use super::transfer::select_text_mime;
 use super::{CaptureTrigger, ClipboardEvent, RecordingGate};
+use crate::content::{select_format, ContentFormat};
 
 enum WatchDevice {
     Ext(ExtDataControlDeviceV1),
@@ -47,11 +47,12 @@ impl WatchState {
         self.offers.remove(&id).unwrap_or_default()
     }
 
-    fn queue_reader(&mut self, reader: os_pipe::PipeReader, epoch: u64) {
-        match self
-            .capture
-            .try_send(CaptureTrigger::Native { reader, epoch })
-        {
+    fn queue_reader(&mut self, reader: os_pipe::PipeReader, format: ContentFormat, epoch: u64) {
+        match self.capture.try_send(CaptureTrigger::Native {
+            reader,
+            format,
+            epoch,
+        }) {
             Ok(()) => self.backpressure_warned = false,
             Err(mpsc::TrySendError::Full(_)) if !self.backpressure_warned => {
                 self.backpressure_warned = true;
@@ -70,19 +71,19 @@ impl WatchState {
     ) -> Result<()> {
         let mimes = self.finish_offer(offer.id());
         let epoch = self.gate.snapshot();
-        let Some(mime) = select_text_mime(&mimes).filter(|_| self.gate.accepts(epoch)) else {
+        let Some(format) = select_format(&mimes).filter(|_| self.gate.accepts(epoch)) else {
             offer.destroy();
             return Ok(());
         };
         let transfer: Result<os_pipe::PipeReader> = (|| {
             let (reader, writer) = os_pipe::pipe().context("无法创建剪贴板传输管道")?;
-            offer.receive(mime, writer.as_fd());
+            offer.receive(format.mime_type.clone(), writer.as_fd());
             drop(writer);
             connection.flush().context("无法发送剪贴板接收请求")?;
             Ok(reader)
         })();
         offer.destroy();
-        self.queue_reader(transfer?, epoch);
+        self.queue_reader(transfer?, format, epoch);
         Ok(())
     }
 
@@ -93,19 +94,19 @@ impl WatchState {
     ) -> Result<()> {
         let mimes = self.finish_offer(offer.id());
         let epoch = self.gate.snapshot();
-        let Some(mime) = select_text_mime(&mimes).filter(|_| self.gate.accepts(epoch)) else {
+        let Some(format) = select_format(&mimes).filter(|_| self.gate.accepts(epoch)) else {
             offer.destroy();
             return Ok(());
         };
         let transfer: Result<os_pipe::PipeReader> = (|| {
             let (reader, writer) = os_pipe::pipe().context("无法创建剪贴板传输管道")?;
-            offer.receive(mime, writer.as_fd());
+            offer.receive(format.mime_type.clone(), writer.as_fd());
             drop(writer);
             connection.flush().context("无法发送剪贴板接收请求")?;
             Ok(reader)
         })();
         offer.destroy();
-        self.queue_reader(transfer?, epoch);
+        self.queue_reader(transfer?, format, epoch);
         Ok(())
     }
 }

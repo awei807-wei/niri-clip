@@ -43,7 +43,7 @@ pub struct OverlayUi {
     status_revealer: gtk::Revealer,
     status_label: gtk::Label,
     items: RefCell<Vec<HistoryItem>>,
-    visible_items: RefCell<Vec<HistoryItem>>,
+    visible_ids: RefCell<Vec<i64>>,
     actions: Sender<UiAction>,
     updating_pause: Cell<bool>,
     clear_armed: Cell<bool>,
@@ -72,7 +72,7 @@ impl OverlayUi {
             status_revealer: widgets.status_revealer,
             status_label: widgets.status_label,
             items: RefCell::new(Vec::new()),
-            visible_items: RefCell::new(Vec::new()),
+            visible_ids: RefCell::new(Vec::new()),
             actions,
             updating_pause: Cell::new(false),
             clear_armed: Cell::new(false),
@@ -154,10 +154,11 @@ impl OverlayUi {
             self.list.remove(&child);
         }
         let query = self.search.text();
-        let matches = search::rank(&self.items.borrow(), query.as_str());
-        self.visible_items.replace(matches.clone());
+        let items = self.items.borrow();
+        let matches = search::rank(&items, query.as_str());
+        self.visible_ids.replace(matched_ids(&items, &matches));
 
-        if self.items.borrow().is_empty() {
+        if items.is_empty() {
             self.show_empty_history();
         } else if matches.is_empty() {
             self.show_state(
@@ -166,7 +167,7 @@ impl OverlayUi {
                 false,
             );
         } else {
-            self.show_matches(&matches);
+            self.show_matches(&items, &matches);
         }
         self.delete_button.set_sensitive(!matches.is_empty());
         self.update_counter();
@@ -175,14 +176,14 @@ impl OverlayUi {
     fn show_empty_history(&self) {
         self.show_state(
             "EMPTY HISTORY",
-            "复制一段 UTF-8 文字后，它会出现在这里。暂停记录时不会保存任何新内容。",
+            "复制文字、图片或文件后，它会出现在这里。暂停记录时不会保存任何新内容。",
             false,
         );
     }
 
-    fn show_matches(&self, matches: &[HistoryItem]) {
-        for item in matches {
-            self.list.append(&presentation::history_row(item));
+    fn show_matches(&self, items: &[HistoryItem], matches: &[usize]) {
+        for index in matches {
+            self.list.append(&presentation::history_row(&items[*index]));
         }
         self.stack.set_visible_child_name("results");
         if let Some(first) = self.list.row_at_index(0) {
@@ -202,7 +203,7 @@ impl OverlayUi {
     }
 
     fn update_counter(&self) {
-        let total = self.visible_items.borrow().len();
+        let total = self.visible_ids.borrow().len();
         let current = self
             .list
             .selected_row()
@@ -212,7 +213,7 @@ impl OverlayUi {
     }
 
     fn move_selection(&self, delta: i32) {
-        let count = self.visible_items.borrow().len() as i32;
+        let count = self.visible_ids.borrow().len() as i32;
         if count == 0 {
             return;
         }
@@ -247,10 +248,10 @@ impl OverlayUi {
     }
 
     fn restore_at(&self, index: i32) {
-        let Some(item) = self.visible_items.borrow().get(index as usize).cloned() else {
+        let Some(id) = self.visible_ids.borrow().get(index as usize).copied() else {
             return;
         };
-        let _ = self.actions.send(UiAction::Restore(item.id));
+        let _ = self.actions.send(UiAction::Restore(id));
     }
 
     fn delete_selected(&self) {
@@ -258,15 +259,10 @@ impl OverlayUi {
             self.flash("当前没有可删除的历史。", true);
             return;
         };
-        let Some(item) = self
-            .visible_items
-            .borrow()
-            .get(row.index() as usize)
-            .cloned()
-        else {
+        let Some(id) = self.visible_ids.borrow().get(row.index() as usize).copied() else {
             return;
         };
-        let _ = self.actions.send(UiAction::Delete(item.id));
+        let _ = self.actions.send(UiAction::Delete(id));
     }
 
     fn request_clear(self: &Rc<Self>) {
@@ -294,5 +290,44 @@ impl OverlayUi {
         self.clear_armed.set(false);
         self.clear_button.set_label("CLEAR");
         self.clear_button.remove_css_class("danger-button");
+    }
+}
+
+fn matched_ids(items: &[HistoryItem], indices: &[usize]) -> Vec<i64> {
+    indices.iter().map(|index| items[*index].id).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::content::ContentKind;
+    use crate::storage::HistoryItem;
+
+    use super::matched_ids;
+
+    fn item(id: i64, text: &str) -> HistoryItem {
+        HistoryItem {
+            id,
+            kind: ContentKind::Text,
+            mime_type: "text/plain".to_owned(),
+            title: text.to_owned(),
+            search_text: text.to_owned(),
+            byte_len: text.len(),
+            thumbnail: None,
+            created_at_ms: id,
+        }
+    }
+
+    #[test]
+    fn filtered_rows_keep_their_stable_history_ids() {
+        let items = vec![item(41, "alpha"), item(17, "beta"), item(99, "alphabet")];
+
+        assert_eq!(
+            matched_ids(&items, &crate::search::rank(&items, "beta")),
+            vec![17]
+        );
+        assert_eq!(
+            matched_ids(&items, &crate::search::rank(&items, "alph")),
+            vec![41, 99]
+        );
     }
 }

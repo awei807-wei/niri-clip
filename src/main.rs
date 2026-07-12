@@ -79,7 +79,7 @@ fn ensure_no_extra(mut arguments: impl Iterator<Item = String>) -> Result<()> {
 
 fn print_help() {
     println!(
-        "niri-clip — niri 的 Wayland 文字剪贴板历史\n\n\
+        "niri-clip — niri 的 Wayland 富媒体剪贴板历史\n\n\
          用法:\n\
            niri-clip daemon\n\
            niri-clip show|toggle|hide\n\

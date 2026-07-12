@@ -1,21 +1,22 @@
 # niri-clip
 
-`niri-clip` 是面向 Arch Linux + niri 的键盘优先 Wayland 文字剪贴板历史。它以单实例 Rust 守护进程持续记录文字，并用 GTK4 layer-shell 在当前输出中央显示真正的 Overlay；不启动终端，也不依赖 fuzzel、rofi 或 wofi。
+`niri-clip` 是面向 Arch Linux + niri 的键盘优先 Wayland 富媒体剪贴板历史。它以单实例 Rust 守护进程持续记录文字、图片、视频与文件引用，并用 GTK4 layer-shell 在当前输出中央显示真正的 Overlay；不启动终端，也不依赖 fuzzel、rofi 或 wofi。
 
-当前版本是 `0.1.0`，只实现文字闭环。
+当前版本是 `0.2.0`。
 
 ## 已实现
 
 - 原生订阅 `ext-data-control-v1`，不可用时回退 `wlr-data-control-v1`，并直接消费每个 selection offer，快速连续复制不会被合并成最后一项；两者都不可用时明确降级到 450ms 轮询。
-- 只捕获常规 clipboard 中的有效 UTF-8 文字；忽略图片、文件、空白内容、超限内容和非 UTF-8 数据。
-- SQLite 持久化，BLAKE3 精确内容哈希去重；重复内容移动到最新，默认保留 750 条、单条上限 5MB。
+- 按 MIME 捕获常规 clipboard 中的 UTF-8 文字、`image/*`、`video/*` 与桌面文件 URI；文件和常见视频文件只记录 URI，不读取文件正文。
+- SQLite 类型化持久化，BLAKE3 按内容种类、MIME 和原始字节去重；等价文件 URI 表示会合并。重复内容移动到最新，默认保留 750 条、单条载荷上限 5MB。
+- 0.1.0 文字数据库在首次启动时原位迁移；历史列表只加载搜索摘要和最大 72×48 的图片缩略图，完整媒体 BLOB 仅在恢复单条记录时读取。
 - 常驻 GTK4 Overlay；显示前读取 niri 的 focused output 并映射到 GDK monitor，中央面板视觉复用本机 Quickshell 的 Cyber-Zen token。
-- Unicode 模糊搜索、方向键选择、Enter 恢复、Esc 关闭、Shift+Delete 删除。
+- 混合内容 Unicode 模糊搜索、图片行内缩略图、文件名与 MIME/类型/大小展示；方向键选择、Enter 恢复、Esc 关闭、Shift+Delete 删除。
 - 顶栏 `CLOSE ×`、`Esc`、点击面板外均可关闭；`Mod+V` 建议绑定到 `toggle`，再次按下也会收起。
 - 暂停记录、删除单条、二次确认清空；暂停状态跨重启保存，暂停期间内容不会在恢复后补录。
 - Unix Socket IPC、systemd 用户服务和私有文件权限。
 
-首版不处理图片、文件、X11、来源应用、自动 `Ctrl+V`、云同步、托盘或设置 GUI。
+当前不处理 X11、Flatpak Portal 临时文件传输句柄、来源应用、自动 `Ctrl+V`、云同步、托盘或设置 GUI。Overlay 不播放视频；视频文件按 URI 恢复，来源直接提供的原始 `video/*` 仅在单条上限内保存。
 
 ## Arch Linux 依赖
 
@@ -84,7 +85,7 @@ spawn-at-startup "systemctl" "--user" "start" "niri-clip.service"
 环境变量：
 
 - `NIRI_CLIP_MAX_ITEMS`：历史数量上限，必须大于 0，默认 `750`。
-- `NIRI_CLIP_MAX_BYTES`：单条 UTF-8 内容字节上限，必须大于 0，默认 `5000000`。
+- `NIRI_CLIP_MAX_BYTES`：单条剪贴板载荷字节上限，必须大于 0，默认 `5000000`。文件 URI 很小，不受目标文件大小影响；提高该值会允许更大的原始图片/媒体进入 SQLite。
 - `NIRI_CLIP_DATA_DIR`：覆盖数据目录，主要用于测试。
 - `NIRI_CLIP_RUNTIME_DIR`：覆盖运行目录基路径，主要用于测试。
 
@@ -93,7 +94,9 @@ spawn-at-startup "systemctl" "--user" "start" "niri-clip.service"
 - 数据库：`$XDG_DATA_HOME/niri-clip/history.sqlite3`，通常是 `~/.local/share/niri-clip/history.sqlite3`。
 - Socket：`$XDG_RUNTIME_DIR/niri-clip/daemon.sock`。
 
-数据目录和运行目录强制为 `0700`，数据库和 socket 强制为 `0600`。SQLite 只保存原文、内容哈希和时间，不保存来源应用。原生传输使用有界队列和 2 秒读取超时；暂停切换会使所有已排队的旧代际任务失效，恢复时不会回填暂停期间最后留下的内容。
+数据目录和运行目录强制为 `0700`，数据库和 socket 强制为 `0600`。SQLite 保存原始载荷、MIME、内容种类、搜索摘要、内容哈希、时间和受限图片缩略图，不保存来源应用，也不读取文件 URI 指向的正文。原生传输使用有界队列和 2 秒读取超时；暂停切换会使所有已排队的旧代际任务失效，恢复时不会回填暂停期间最后留下的内容。
+
+从 0.1.0 升级无需手工操作。0.2.0 写入媒体记录后不建议直接降级运行 0.1.0；旧版本会把数据库正文假定为 UTF-8 `TEXT`。
 
 ## 行为与协议边界
 
@@ -108,18 +111,32 @@ cargo test --all-features
 cargo build --release --locked
 ```
 
-手工首个证明点：
+手工证明点：
 
 1. 执行 `wl-copy '唯一测试文字 alpha 中文'`。
 2. 按 `Mod+V`，确认 Overlay 位于当前显示器中央。
 3. 输入 `alpha`，确认只保留匹配项。
 4. 按 Enter；再执行 `wl-paste --no-newline`，确认输出逐字节一致。
 
+图片：
+
+```bash
+wl-copy --type image/png < test.png
+niri-clip toggle
+# 在 Overlay 选择图片并按 Enter
+wl-paste --type image/png > /tmp/niri-clip-restored.png
+cmp test.png /tmp/niri-clip-restored.png
+```
+
+视频文件引用：在文件管理器复制一个 `.mp4`，打开 Overlay 确认文件名和 `FILES` 类型；按 Enter 后在目标目录粘贴，确认恢复为复制而不是移动。也可用 `wl-copy --type text/uri-list` 与 `wl-paste --type text/uri-list` 做字节级协议检查。
+
 ## 故障排查
 
 - `无法连接 niri-clip 守护进程`：检查 `systemctl --user status niri-clip.service`。
 - `无法连接 Wayland compositor`：重新导入 `WAYLAND_DISPLAY` 等环境变量后重启服务。
 - 日志显示轮询降级：当前 compositor 没有暴露 ext/wlr data-control；niri 正常应提供原生后端。
+- 图片只显示 `IMAGE` 标签：内容仍已保存并可恢复，但当前 GdkPixbuf 解码器无法生成缩略图；检查 MIME 是否与真实图片格式一致。
+- 大型原始媒体没有进入历史：它超过 `NIRI_CLIP_MAX_BYTES` 或 2 秒传输限制；复制媒体文件本身时应使用文件管理器提供的 URI 列表。
 - `niri msg layers` 应显示 namespace `niri-clip`、layer `Overlay`、keyboard interactivity `Exclusive`；关闭后该条目应消失。
 - GTK 启动时若错误指向外部主题的 `colors.css`，属于当前 GTK 主题语法问题；项目自带样式错误会显示为 `<data>`。
 

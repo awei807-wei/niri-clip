@@ -184,6 +184,22 @@ window {
   padding: 9px 12px;
 }
 
+.media-thumb,
+.media-placeholder {
+  min-width: 72px;
+  min-height: 48px;
+  border: 1px solid @zen_mist;
+  border-radius: 2px;
+  background-color: @zen_void;
+}
+
+.media-placeholder {
+  color: @zen_smoke;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
 .history-preview {
   color: @zen_snow;
   font-size: 13px;

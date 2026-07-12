@@ -5,6 +5,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gtk::gdk;
+use gtk::glib;
 use gtk::pango;
 use gtk::prelude::*;
 use gtk4 as gtk;
@@ -14,29 +15,85 @@ use serde::Deserialize;
 use crate::search;
 use crate::storage::HistoryItem;
 
+#[derive(Debug, Eq, PartialEq)]
+struct RowPresentation {
+    title: String,
+    meta: String,
+    accessible_label: String,
+}
+
 pub(super) fn history_row(item: &HistoryItem) -> gtk::ListBoxRow {
+    let presentation = row_presentation(item);
     let row = gtk::ListBoxRow::new();
     row.set_selectable(true);
     row.set_activatable(true);
     row.set_focusable(false);
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    row.update_property(&[gtk::accessible::Property::Label(
+        &presentation.accessible_label,
+    )]);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     content.add_css_class("history-row-content");
-    let preview = gtk::Label::new(Some(&search::preview(&item.content, 140)));
+    if item.kind != crate::content::ContentKind::Text {
+        content.append(&media_visual(item));
+    }
+    let copy = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    copy.set_hexpand(true);
+    copy.add_css_class("history-row-copy");
+    let preview = gtk::Label::new(Some(&presentation.title));
     preview.set_xalign(0.0);
     preview.set_ellipsize(pango::EllipsizeMode::End);
     preview.set_single_line_mode(true);
     preview.add_css_class("history-preview");
-    let meta = gtk::Label::new(Some(&format!(
-        "{}  ·  {}",
-        relative_time(item.created_at_ms),
-        byte_size(item.content.len())
-    )));
+    let meta = gtk::Label::new(Some(&presentation.meta));
     meta.set_xalign(0.0);
+    meta.set_ellipsize(pango::EllipsizeMode::End);
+    meta.set_single_line_mode(true);
     meta.add_css_class("history-meta");
-    content.append(&preview);
-    content.append(&meta);
+    copy.append(&preview);
+    copy.append(&meta);
+    content.append(&copy);
     row.set_child(Some(&content));
     row
+}
+
+fn media_visual(item: &HistoryItem) -> gtk::Widget {
+    if let Some(thumbnail) = item.thumbnail.as_deref().and_then(thumbnail_texture) {
+        let picture = gtk::Picture::builder()
+            .paintable(&thumbnail)
+            .can_shrink(true)
+            .content_fit(gtk::ContentFit::Cover)
+            .build();
+        picture.set_size_request(72, 48);
+        picture.add_css_class("media-thumb");
+        return picture.upcast();
+    }
+    let placeholder = gtk::Label::new(Some(item.kind.label()));
+    placeholder.set_size_request(72, 48);
+    placeholder.add_css_class("media-placeholder");
+    placeholder.upcast()
+}
+
+fn thumbnail_texture(bytes: &[u8]) -> Option<gdk::Texture> {
+    let bytes = glib::Bytes::from_owned(bytes.to_vec());
+    gdk::Texture::from_bytes(&bytes).ok()
+}
+
+fn row_presentation(item: &HistoryItem) -> RowPresentation {
+    let kind = item.kind.label();
+    let time = relative_time(item.created_at_ms);
+    let size = byte_size(item.byte_len);
+    let title = if item.kind == crate::content::ContentKind::Text {
+        search::preview(&item.title, 140)
+    } else if item.title.trim().is_empty() {
+        format!("{kind} 内容")
+    } else {
+        item.title.clone()
+    };
+    RowPresentation {
+        meta: format!("{kind}  ·  {}  ·  {time}  ·  {size}", item.mime_type),
+        accessible_label: format!("{kind}，{title}，{}，{size}，{time}", item.mime_type),
+        title,
+    }
 }
 
 pub(super) fn install_css() {
@@ -124,7 +181,7 @@ fn relative_time(timestamp_ms: i64) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
-    let seconds = now.saturating_sub(timestamp_ms) / 1000;
+    let seconds = now.saturating_sub(timestamp_ms).max(0) / 1000;
     match seconds {
         0..=59 => "刚刚".to_owned(),
         60..=3599 => format!("{} 分钟前", seconds / 60),
@@ -145,7 +202,47 @@ fn byte_size(bytes: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{byte_size, is_hex_color};
+    use crate::content::ContentKind;
+    use crate::storage::HistoryItem;
+
+    use super::{byte_size, is_hex_color, row_presentation, RowPresentation};
+
+    fn item(kind: ContentKind, title: &str, mime_type: &str) -> HistoryItem {
+        HistoryItem {
+            id: 7,
+            kind,
+            mime_type: mime_type.to_owned(),
+            title: title.to_owned(),
+            search_text: title.to_owned(),
+            byte_len: 1536,
+            thumbnail: None,
+            created_at_ms: i64::MAX,
+        }
+    }
+
+    #[test]
+    fn media_rows_expose_type_mime_size_and_accessible_description() {
+        let row = row_presentation(&item(ContentKind::Video, "demo.mp4", "video/mp4"));
+
+        assert_eq!(
+            row,
+            RowPresentation {
+                title: "demo.mp4".to_owned(),
+                meta: "VIDEO  ·  video/mp4  ·  刚刚  ·  1.5 KiB".to_owned(),
+                accessible_label: "VIDEO，demo.mp4，video/mp4，1.5 KiB，刚刚".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn text_rows_keep_flattened_preview() {
+        let row = row_presentation(&item(
+            ContentKind::Text,
+            "  first\n\tsecond  ",
+            "text/plain;charset=utf-8",
+        ));
+        assert_eq!(row.title, "first second");
+    }
 
     #[test]
     fn formats_byte_sizes_for_row_metadata() {

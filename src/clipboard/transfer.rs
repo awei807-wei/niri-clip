@@ -8,49 +8,47 @@ use os_pipe::PipeReader;
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use wl_clipboard_rs::paste;
 
+use crate::content::{select_format, ClipboardContent};
+
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub(super) fn read_current_text(max_bytes: usize) -> Result<Option<String>> {
-    let (reader, _mime_type) = match paste::get_contents(
+pub(super) fn read_current_content(max_bytes: usize) -> Result<Option<ClipboardContent>> {
+    let mime_types = match paste::get_mime_types_ordered(
         paste::ClipboardType::Regular,
         paste::Seat::Unspecified,
-        paste::MimeType::Text,
+    ) {
+        Ok(mime_types) => mime_types,
+        Err(paste::Error::NoSeats | paste::Error::ClipboardEmpty | paste::Error::NoMimeType) => {
+            return Ok(None)
+        }
+        Err(error) => return Err(error).context("data-control MIME 枚举失败"),
+    };
+    let Some(format) = select_format(&mime_types) else {
+        return Ok(None);
+    };
+    let (reader, _) = match paste::get_contents(
+        paste::ClipboardType::Regular,
+        paste::Seat::Unspecified,
+        paste::MimeType::Specific(&format.mime_type),
     ) {
         Ok(contents) => contents,
         Err(paste::Error::NoSeats | paste::Error::ClipboardEmpty | paste::Error::NoMimeType) => {
             return Ok(None)
         }
-        Err(error) => return Err(error).context("data-control 读取失败"),
+        Err(error) => return Err(error).context("data-control 内容读取失败"),
     };
-    read_pipe_text(reader, max_bytes)
+    Ok(read_pipe_bytes(reader, max_bytes)?.and_then(|bytes| ClipboardContent::new(format, bytes)))
 }
 
-pub(super) fn read_pipe_text(reader: PipeReader, max_bytes: usize) -> Result<Option<String>> {
-    read_pipe_text_with_timeout(reader, max_bytes, TRANSFER_TIMEOUT)
+pub(super) fn read_pipe_bytes(reader: PipeReader, max_bytes: usize) -> Result<Option<Vec<u8>>> {
+    read_pipe_bytes_with_timeout(reader, max_bytes, TRANSFER_TIMEOUT)
 }
 
-pub(super) fn select_text_mime(mime_types: &[String]) -> Option<String> {
-    mime_types
-        .iter()
-        .find(|mime| mime.as_str() == "text/plain;charset=utf-8")
-        .or_else(|| {
-            mime_types
-                .iter()
-                .find(|mime| mime.as_str() == "UTF8_STRING")
-        })
-        .or_else(|| {
-            mime_types
-                .iter()
-                .find(|mime| wl_clipboard_rs::utils::is_text(mime))
-        })
-        .cloned()
-}
-
-fn read_pipe_text_with_timeout(
+fn read_pipe_bytes_with_timeout(
     mut reader: PipeReader,
     max_bytes: usize,
     timeout: Duration,
-) -> Result<Option<String>> {
+) -> Result<Option<Vec<u8>>> {
     let deadline = Instant::now() + timeout;
     let mut bytes = Vec::with_capacity(max_bytes.min(8192));
     let mut chunk = [0_u8; 8192];
@@ -74,7 +72,7 @@ fn read_pipe_text_with_timeout(
         }
     }
 
-    Ok(String::from_utf8(bytes).ok())
+    Ok(Some(bytes))
 }
 
 fn wait_until_readable(reader: &PipeReader, deadline: Instant) -> Result<()> {
@@ -119,59 +117,37 @@ mod tests {
 
     use os_pipe::pipe;
 
-    use super::{read_pipe_text_with_timeout, select_text_mime};
+    use super::read_pipe_bytes_with_timeout;
 
     #[test]
-    fn accepts_exact_utf8_at_limit() {
+    fn preserves_arbitrary_binary_bytes_at_limit() {
         let (reader, mut writer) = pipe().unwrap();
-        writer.write_all("中文".as_bytes()).unwrap();
+        writer.write_all(&[0x00, 0xff, 0x42]).unwrap();
         drop(writer);
+
         assert_eq!(
-            read_pipe_text_with_timeout(reader, 6, Duration::from_secs(1))
-                .unwrap()
-                .as_deref(),
-            Some("中文")
+            read_pipe_bytes_with_timeout(reader, 3, Duration::from_secs(1)).unwrap(),
+            Some(vec![0x00, 0xff, 0x42])
         );
     }
 
     #[test]
-    fn rejects_oversize_and_invalid_utf8() {
+    fn rejects_oversize_binary_without_partial_content() {
         let (reader, mut writer) = pipe().unwrap();
-        writer.write_all(b"abcd").unwrap();
+        writer.write_all(&[1, 2, 3, 4]).unwrap();
         drop(writer);
+
         assert!(
-            read_pipe_text_with_timeout(reader, 3, Duration::from_secs(1))
+            read_pipe_bytes_with_timeout(reader, 3, Duration::from_secs(1))
                 .unwrap()
                 .is_none()
-        );
-
-        let (reader, mut writer) = pipe().unwrap();
-        writer.write_all(&[0xff, 0xfe]).unwrap();
-        drop(writer);
-        assert!(
-            read_pipe_text_with_timeout(reader, 3, Duration::from_secs(1))
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn prioritizes_explicit_utf8_text_mime() {
-        let mimes = vec![
-            "text/plain".to_owned(),
-            "UTF8_STRING".to_owned(),
-            "text/plain;charset=utf-8".to_owned(),
-        ];
-        assert_eq!(
-            select_text_mime(&mimes).as_deref(),
-            Some("text/plain;charset=utf-8")
         );
     }
 
     #[test]
     fn times_out_when_clipboard_owner_never_writes() {
         let (reader, _writer) = pipe().unwrap();
-        let error = read_pipe_text_with_timeout(reader, 16, Duration::from_millis(10))
+        let error = read_pipe_bytes_with_timeout(reader, 16, Duration::from_millis(10))
             .expect_err("open writer should make the read time out");
         assert!(error.to_string().contains("超时"));
     }

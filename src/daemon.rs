@@ -80,7 +80,8 @@ fn drain_clipboard(
                 if !recording_gate.accepts(epoch) {
                     continue;
                 }
-                match storage.borrow_mut().record(&content) {
+                let thumbnail = crate::media::thumbnail_png(&content);
+                match storage.borrow_mut().record(&content, thumbnail.as_deref()) {
                     Ok(RecordOutcome::Inserted(_)) if ui.is_visible() => refresh(storage, ui),
                     Ok(_) => {}
                     Err(error) => {
@@ -149,60 +150,90 @@ fn drain_ipc(
     recording_gate: &clipboard::RecordingGate,
 ) {
     while let Ok(envelope) = receiver.try_recv() {
-        let response = match envelope.request {
-            Request::Show => {
-                ui.show();
-                Response::ok("Overlay 已显示")
-            }
-            Request::Toggle => {
-                if ui.is_visible() {
-                    ui.hide();
-                    Response::ok("Overlay 已关闭")
-                } else {
-                    ui.show();
-                    Response::ok("Overlay 已显示")
-                }
-            }
-            Request::Hide => {
-                ui.hide();
-                Response::ok("Overlay 已关闭")
-            }
-            Request::Pause => pause_response(storage, ui, recording_gate, true),
-            Request::Resume => pause_response(storage, ui, recording_gate, false),
-            Request::TogglePause => {
-                pause_response(storage, ui, recording_gate, !recording_gate.is_paused())
-            }
-            Request::Delete { id } => match delete(storage, id) {
-                Ok(true) => {
-                    if ui.is_visible() {
-                        refresh(storage, ui);
-                    }
-                    Response::ok(format!("已删除历史 {id}"))
-                }
-                Ok(false) => Response::error(format!("历史 {id} 不存在")),
-                Err(error) => Response::error(format!("删除失败: {error:#}")),
-            },
-            Request::Clear => match clear(storage) {
-                Ok(count) => {
-                    if ui.is_visible() {
-                        refresh(storage, ui);
-                    }
-                    Response::ok(format!("已清空 {count} 条历史"))
-                }
-                Err(error) => Response::error(format!("清空失败: {error:#}")),
-            },
-            Request::Status => match storage.borrow().count() {
-                Ok(count) => Response {
-                    ok: true,
-                    message: "ready".to_owned(),
-                    paused: Some(recording_gate.is_paused()),
-                    count: Some(count),
-                },
-                Err(error) => Response::error(format!("读取状态失败: {error:#}")),
-            },
-            Request::Ping => Response::ok("pong"),
-        };
+        let response = handle_ipc_request(envelope.request, storage, ui, recording_gate);
         let _ = envelope.response.send(response);
+    }
+}
+
+fn handle_ipc_request(
+    request: Request,
+    storage: &Rc<RefCell<Storage>>,
+    ui: &Rc<OverlayUi>,
+    recording_gate: &clipboard::RecordingGate,
+) -> Response {
+    match request {
+        Request::Show => show_response(ui),
+        Request::Toggle => toggle_response(ui),
+        Request::Hide => hide_response(ui),
+        Request::Pause => pause_response(storage, ui, recording_gate, true),
+        Request::Resume => pause_response(storage, ui, recording_gate, false),
+        Request::TogglePause => {
+            pause_response(storage, ui, recording_gate, !recording_gate.is_paused())
+        }
+        Request::Delete { id } => delete_response(storage, ui, id),
+        Request::Clear => clear_response(storage, ui),
+        Request::Status => status_response(storage, recording_gate),
+        Request::Ping => Response::ok("pong"),
+    }
+}
+
+fn show_response(ui: &OverlayUi) -> Response {
+    ui.show();
+    Response::ok("Overlay 已显示")
+}
+
+fn toggle_response(ui: &OverlayUi) -> Response {
+    if ui.is_visible() {
+        hide_response(ui)
+    } else {
+        show_response(ui)
+    }
+}
+
+fn hide_response(ui: &OverlayUi) -> Response {
+    ui.hide();
+    Response::ok("Overlay 已关闭")
+}
+
+fn delete_response(storage: &Rc<RefCell<Storage>>, ui: &OverlayUi, id: i64) -> Response {
+    match delete(storage, id) {
+        Ok(true) => {
+            refresh_if_visible(storage, ui);
+            Response::ok(format!("已删除历史 {id}"))
+        }
+        Ok(false) => Response::error(format!("历史 {id} 不存在")),
+        Err(error) => Response::error(format!("删除失败: {error:#}")),
+    }
+}
+
+fn clear_response(storage: &Rc<RefCell<Storage>>, ui: &OverlayUi) -> Response {
+    match clear(storage) {
+        Ok(count) => {
+            refresh_if_visible(storage, ui);
+            Response::ok(format!("已清空 {count} 条历史"))
+        }
+        Err(error) => Response::error(format!("清空失败: {error:#}")),
+    }
+}
+
+fn status_response(
+    storage: &Rc<RefCell<Storage>>,
+    recording_gate: &clipboard::RecordingGate,
+) -> Response {
+    match storage.borrow().count() {
+        Ok(count) => Response {
+            ok: true,
+            message: "ready".to_owned(),
+            paused: Some(recording_gate.is_paused()),
+            count: Some(count),
+        },
+        Err(error) => Response::error(format!("读取状态失败: {error:#}")),
+    }
+}
+
+fn refresh_if_visible(storage: &Rc<RefCell<Storage>>, ui: &OverlayUi) {
+    if ui.is_visible() {
+        refresh(storage, ui);
     }
 }
 
@@ -214,11 +245,11 @@ fn refresh(storage: &Rc<RefCell<Storage>>, ui: &OverlayUi) {
 }
 
 fn restore(storage: &Rc<RefCell<Storage>>, id: i64) -> Result<()> {
-    let item = storage
+    let content = storage
         .borrow()
-        .get(id)?
+        .get_content(id)?
         .with_context(|| format!("历史 {id} 不存在"))?;
-    clipboard::copy_text(&item.content)
+    clipboard::copy_content(&content)
 }
 
 fn delete(storage: &Rc<RefCell<Storage>>, id: i64) -> Result<bool> {
