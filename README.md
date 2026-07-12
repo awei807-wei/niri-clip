@@ -37,6 +37,8 @@ systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESS
 systemctl --user enable --now niri-clip.service
 ```
 
+该服务可由活跃的 `graphical-session.target` 拉起，也可在导入 Wayland 环境后直接启动；因此兼容通过 `niri.service` 管理和直接运行 `niri --session` 两种会话。
+
 确认服务与原生监听后端：
 
 ```bash
@@ -55,7 +57,7 @@ binds {
 }
 ```
 
-若用户 systemd 环境没有 Wayland 变量，在 niri 顶层加入：
+若 niri 会话不是由 `niri.service` 管理，或用户 systemd 环境没有 Wayland 变量，在 niri 顶层加入：
 
 ```kdl
 spawn-at-startup "systemctl" "--user" "import-environment" "WAYLAND_DISPLAY" "XDG_CURRENT_DESKTOP" "XDG_SESSION_TYPE" "NIRI_SOCKET"
