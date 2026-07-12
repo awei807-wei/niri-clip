@@ -115,10 +115,17 @@ fn drain_ui(
     while let Ok(action) = receiver.try_recv() {
         match action {
             UiAction::Refresh => refresh(storage, ui),
-            UiAction::Restore(id) => match restore(storage, id) {
-                Ok(()) => ui.hide(),
+            UiAction::Restore(id) if ui.is_visible() => match restore(storage, id) {
+                Ok(()) => {
+                    ui.hide();
+                    let ui = Rc::downgrade(ui);
+                    crate::auto_paste::schedule(move || {
+                        ui.upgrade().is_some_and(|ui| !ui.is_visible())
+                    });
+                }
                 Err(error) => ui.flash(&format!("恢复失败: {error:#}"), true),
             },
+            UiAction::Restore(_) => {}
             UiAction::Delete(id) => match delete(storage, id) {
                 Ok(true) => {
                     refresh(storage, ui);

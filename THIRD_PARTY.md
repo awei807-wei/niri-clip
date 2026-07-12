@@ -26,6 +26,10 @@
 
 传递依赖、精确校验和与完整来源记录在 `Cargo.lock` 和 crates.io 包元数据中。项目源码中的 SPDX 标识只声明本项目文件的 GPL-3.0-only，不改变依赖各自许可证。
 
+## 运行时工具
+
+- [atx/wtype](https://github.com/atx/wtype)，MIT。仅在用户显式恢复历史后用于发送一次选定的 Linux 粘贴快捷键；未安装或执行失败时静默保留剪贴板恢复结果。
+
 ## Vendored 安全补丁
 
 `vendor/wayland-scanner/` 是 crates.io `wayland-scanner 0.31.10` 的 MIT 许可源码，原许可证保留在 `vendor/wayland-scanner/LICENSE.txt`。它只包含两项已进入 Smithay/wayland-rs 上游的兼容变更：
