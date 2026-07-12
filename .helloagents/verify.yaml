@@ -1,8 +1,0 @@
-# Verify commands for HelloAGENTS qa-review
-# Format: simple list only (one command per line)
-
-commands:
-  - cargo fmt --all -- --check
-  - cargo clippy --all-targets --all-features -- -D warnings
-  - cargo test --all-features
-  - cargo build --release --locked
