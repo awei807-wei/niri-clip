@@ -1,0 +1,228 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+
+@define-color zen_void #080808;
+@define-color zen_ink #101010;
+@define-color zen_stone #1c1c1c;
+@define-color zen_mist #252525;
+@define-color zen_ash #404040;
+@define-color zen_smoke #707070;
+@define-color zen_cloud #999999;
+@define-color zen_snow #d0d0d0;
+@define-color zen_pure #ffffff;
+@define-color zen_accent #5a9a8a;
+@define-color zen_danger #9a5555;
+
+window {
+  color: @zen_snow;
+  background-color: transparent;
+  font-family: "JetBrainsMono Nerd Font", "Noto Sans Mono CJK SC", monospace;
+}
+
+.overlay-host {
+  background-color: transparent;
+}
+
+.overlay-backdrop {
+  background-color: rgba(8, 8, 8, 0.28);
+}
+
+.overlay-shell {
+  color: @zen_snow;
+  background-color: @zen_ink;
+  border: 1px solid @zen_mist;
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.header {
+  min-height: 44px;
+  padding: 0 14px;
+  border-bottom: 1px solid @zen_mist;
+}
+
+.product-title {
+  color: @zen_snow;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.item-counter,
+.mode-status {
+  color: @zen_cloud;
+  font-size: 10px;
+  letter-spacing: 0.7px;
+}
+
+.mode-status {
+  color: @zen_accent;
+  font-weight: 700;
+}
+
+.paused .mode-status {
+  color: @zen_smoke;
+}
+
+.history-search {
+  min-height: 38px;
+  margin: 14px;
+  padding: 0 11px;
+  color: @zen_snow;
+  caret-color: @zen_accent;
+  background-color: @zen_void;
+  border: 1px solid @zen_mist;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.history-search:focus-within {
+  border-color: @zen_accent;
+  box-shadow: inset 0 -1px @zen_accent;
+}
+
+.quiet-button {
+  min-height: 28px;
+  padding: 0 9px;
+  color: @zen_cloud;
+  background-color: transparent;
+  border: 1px solid @zen_mist;
+  border-radius: 2px;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.quiet-button:hover {
+  color: @zen_snow;
+  background-color: @zen_stone;
+  border-color: @zen_ash;
+}
+
+.quiet-button:active {
+  color: @zen_pure;
+  background-color: @zen_mist;
+}
+
+.quiet-button:checked {
+  color: @zen_accent;
+  background-color: @zen_stone;
+  border-color: @zen_accent;
+}
+
+.quiet-button:disabled {
+  opacity: 0.35;
+}
+
+.quiet-button:focus-visible,
+.danger-button:focus-visible {
+  outline: 2px solid @zen_accent;
+  outline-offset: 1px;
+}
+
+.close-button {
+  color: @zen_snow;
+}
+
+.clear-button:hover,
+.danger-button {
+  color: @zen_danger;
+  background-color: rgba(153, 64, 64, 0.18);
+  border-color: @zen_danger;
+}
+
+.status-banner {
+  min-height: 28px;
+  margin: 0 14px 8px 14px;
+  padding: 0 9px;
+  color: @zen_accent;
+  background-color: @zen_stone;
+  border-left: 2px solid @zen_accent;
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.status-banner.warning {
+  color: @zen_danger;
+  border-left-color: @zen_danger;
+}
+
+.results-surface {
+  margin: 0 14px;
+  background-color: @zen_ink;
+  border: 1px solid @zen_mist;
+  border-radius: 2px;
+}
+
+.history-list {
+  background-color: @zen_ink;
+}
+
+.history-list row {
+  margin: 0;
+  color: @zen_cloud;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-bottom-color: @zen_mist;
+  border-left-width: 2px;
+  border-radius: 0;
+}
+
+.history-list row:hover {
+  color: @zen_snow;
+  background-color: @zen_stone;
+  border-color: @zen_ash;
+}
+
+.history-list row:selected {
+  color: @zen_snow;
+  background-color: @zen_stone;
+  border-color: @zen_mist;
+  border-left-color: @zen_accent;
+}
+
+.history-row-content {
+  padding: 9px 12px;
+}
+
+.history-preview {
+  color: @zen_snow;
+  font-size: 13px;
+}
+
+.history-meta {
+  color: @zen_smoke;
+  font-size: 10px;
+}
+
+.state-box {
+  margin: 0 22px;
+  padding: 26px;
+}
+
+.state-title {
+  color: @zen_cloud;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.state-title.error {
+  color: @zen_danger;
+}
+
+.state-detail {
+  color: @zen_smoke;
+  font-size: 11px;
+}
+
+.footer {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-top: 1px solid @zen_mist;
+}
+
+.key-help {
+  color: @zen_smoke;
+  font-size: 9px;
+  letter-spacing: 0.3px;
+}

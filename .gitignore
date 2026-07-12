@@ -1,0 +1,9 @@
+/target/
+/.git-local/
+/.helloagents/sessions/
+/.helloagents/artifacts/
+/smoke-artifacts/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
