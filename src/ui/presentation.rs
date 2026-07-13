@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::rc::Rc;
+use std::sync::mpsc::Sender;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gtk::gdk;
 use gtk::glib;
@@ -12,8 +15,13 @@ use gtk4 as gtk;
 use gtk4_layer_shell::LayerShell;
 use serde::Deserialize;
 
+use crate::content::ContentKind;
 use crate::search;
 use crate::storage::HistoryItem;
+
+use super::UiAction;
+
+const PREVIEW_HOVER_DELAY: Duration = Duration::from_millis(160);
 
 #[derive(Debug, Eq, PartialEq)]
 struct RowPresentation {
@@ -22,7 +30,11 @@ struct RowPresentation {
     accessible_label: String,
 }
 
-pub(super) fn history_row(item: &HistoryItem) -> gtk::ListBoxRow {
+pub(super) fn history_row(
+    item: &HistoryItem,
+    actions: &Sender<UiAction>,
+    preview_generation: &Rc<Cell<u64>>,
+) -> gtk::ListBoxRow {
     let presentation = row_presentation(item);
     let row = gtk::ListBoxRow::new();
     row.set_selectable(true);
@@ -34,7 +46,7 @@ pub(super) fn history_row(item: &HistoryItem) -> gtk::ListBoxRow {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     content.add_css_class("history-row-content");
     if item.kind != crate::content::ContentKind::Text {
-        content.append(&media_visual(item));
+        content.append(&media_visual(item, actions, preview_generation));
     }
     let copy = gtk::Box::new(gtk::Orientation::Vertical, 5);
     copy.set_hexpand(true);
@@ -56,8 +68,12 @@ pub(super) fn history_row(item: &HistoryItem) -> gtk::ListBoxRow {
     row
 }
 
-fn media_visual(item: &HistoryItem) -> gtk::Widget {
-    if let Some(thumbnail) = item.thumbnail.as_deref().and_then(thumbnail_texture) {
+fn media_visual(
+    item: &HistoryItem,
+    actions: &Sender<UiAction>,
+    preview_generation: &Rc<Cell<u64>>,
+) -> gtk::Widget {
+    let visual = if let Some(thumbnail) = item.thumbnail.as_deref().and_then(thumbnail_texture) {
         let picture = gtk::Picture::builder()
             .paintable(&thumbnail)
             .can_shrink(true)
@@ -65,12 +81,67 @@ fn media_visual(item: &HistoryItem) -> gtk::Widget {
             .build();
         picture.set_size_request(72, 48);
         picture.add_css_class("media-thumb");
-        return picture.upcast();
+        picture.upcast()
+    } else {
+        let placeholder = gtk::Label::new(Some(item.kind.label()));
+        placeholder.set_size_request(72, 48);
+        placeholder.add_css_class("media-placeholder");
+        placeholder.upcast()
+    };
+    if item.kind == ContentKind::Image {
+        install_image_hover(&visual, item.id, actions, preview_generation);
     }
-    let placeholder = gtk::Label::new(Some(item.kind.label()));
-    placeholder.set_size_request(72, 48);
-    placeholder.add_css_class("media-placeholder");
-    placeholder.upcast()
+    visual
+}
+
+fn install_image_hover(
+    visual: &gtk::Widget,
+    id: i64,
+    actions: &Sender<UiAction>,
+    preview_generation: &Rc<Cell<u64>>,
+) {
+    let pending = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let motion = gtk::EventControllerMotion::new();
+
+    let pending_enter = Rc::clone(&pending);
+    let preview_actions = actions.clone();
+    let preview_generation = Rc::clone(preview_generation);
+    motion.connect_enter(move |controller, _, _| {
+        cancel_hover_timer(&pending_enter);
+        let entered_generation = preview_generation.get();
+        let pending_timeout = Rc::clone(&pending_enter);
+        let preview_actions = preview_actions.clone();
+        let controller = controller.downgrade();
+        let preview_generation = Rc::clone(&preview_generation);
+        let source = glib::timeout_add_local_once(PREVIEW_HOVER_DELAY, move || {
+            pending_timeout.borrow_mut().take();
+            if hover_generation_is_current(preview_generation.get(), entered_generation)
+                && controller
+                    .upgrade()
+                    .is_some_and(|controller| controller.contains_pointer())
+            {
+                let _ = preview_actions.send(UiAction::Preview(id));
+            }
+        });
+        pending_enter.replace(Some(source));
+    });
+
+    let hide_actions = actions.clone();
+    motion.connect_leave(move |_| {
+        cancel_hover_timer(&pending);
+        let _ = hide_actions.send(UiAction::HidePreview(id));
+    });
+    visual.add_controller(motion);
+}
+
+fn hover_generation_is_current(current: u64, entered: u64) -> bool {
+    current == entered
+}
+
+fn cancel_hover_timer(pending: &RefCell<Option<glib::SourceId>>) {
+    if let Some(source) = pending.borrow_mut().take() {
+        source.remove();
+    }
 }
 
 fn thumbnail_texture(bytes: &[u8]) -> Option<gdk::Texture> {
@@ -205,7 +276,9 @@ mod tests {
     use crate::content::ContentKind;
     use crate::storage::HistoryItem;
 
-    use super::{byte_size, is_hex_color, row_presentation, RowPresentation};
+    use super::{
+        byte_size, hover_generation_is_current, is_hex_color, row_presentation, RowPresentation,
+    };
 
     fn item(kind: ContentKind, title: &str, mime_type: &str) -> HistoryItem {
         HistoryItem {
@@ -256,5 +329,11 @@ mod tests {
         assert!(!is_hex_color("blue"));
         assert!(!is_hex_color("#12345678"));
         assert!(!is_hex_color("#12zz56"));
+    }
+
+    #[test]
+    fn global_preview_cancellation_invalidates_pending_hover_timers() {
+        assert!(hover_generation_is_current(7, 7));
+        assert!(!hover_generation_is_current(8, 7));
     }
 }

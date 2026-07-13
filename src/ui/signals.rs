@@ -25,25 +25,45 @@ fn connect_search_and_rows(ui: &Rc<OverlayUi>) {
     let weak = Rc::downgrade(ui);
     ui.search.connect_search_changed(move |_| {
         if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
             ui.apply_filter();
         }
     });
     let weak = Rc::downgrade(ui);
     ui.search.connect_activate(move |_| {
         if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
             ui.restore_selected();
         }
     });
     let weak = Rc::downgrade(ui);
     ui.list.connect_row_activated(move |_, row| {
         if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
             ui.restore_at(row.index());
         }
     });
     let weak = Rc::downgrade(ui);
     ui.list.connect_row_selected(move |_, _| {
         if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
             ui.update_counter();
+        }
+    });
+    let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let weak = Rc::downgrade(ui);
+    scroll.connect_scroll(move |_, _, _| {
+        if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
+        }
+        glib::Propagation::Proceed
+    });
+    ui.scroller.add_controller(scroll);
+    let weak = Rc::downgrade(ui);
+    ui.scroller.vadjustment().connect_value_changed(move |_| {
+        if let Some(ui) = weak.upgrade() {
+            ui.cancel_preview();
         }
     });
 }
@@ -77,6 +97,7 @@ fn connect_keyboard(ui: &Rc<OverlayUi>) {
     let weak = Rc::downgrade(ui);
     controller.connect_key_pressed(move |_, key, _, modifiers| {
         weak.upgrade().map_or(glib::Propagation::Proceed, |ui| {
+            ui.cancel_preview();
             handle_key(&ui, key, modifiers)
         })
     });

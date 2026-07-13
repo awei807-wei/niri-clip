@@ -2,16 +2,17 @@
 
 `niri-clip` 是面向 Arch Linux + niri 的键盘优先 Wayland 富媒体剪贴板历史。它以单实例 Rust 守护进程持续记录文字、图片、视频与文件引用，并用 GTK4 layer-shell 在当前输出中央显示真正的 Overlay；不启动终端，也不依赖 fuzzel、rofi 或 wofi。
 
-当前版本是 `0.3.0`。
+当前版本是 `0.4.0`。
 
 ## 已实现
 
 - 原生订阅 `ext-data-control-v1`，不可用时回退 `wlr-data-control-v1`，并直接消费每个 selection offer，快速连续复制不会被合并成最后一项；两者都不可用时明确降级到 450ms 轮询。
 - 按 MIME 捕获常规 clipboard 中的 UTF-8 文字、`image/*`、`video/*` 与桌面文件 URI；文件和常见视频文件只记录 URI，不读取文件正文。
 - SQLite 类型化持久化，BLAKE3 按内容种类、MIME 和原始字节去重；等价文件 URI 表示会合并。重复内容移动到最新，默认保留 750 条、单条载荷上限 5MB。
-- 0.1.0 文字数据库在首次启动时原位迁移；历史列表只加载搜索摘要和最大 72×48 的图片缩略图，完整媒体 BLOB 仅在恢复单条记录时读取。
+- 0.1.0 文字数据库在首次启动时原位迁移；历史列表只加载搜索摘要和最大 72×48 的图片缩略图，完整媒体 BLOB 仅在恢复单条记录或悬停预览时按 ID 读取。
 - 常驻 GTK4 Overlay；显示前读取 niri 的 focused output 并映射到 GDK monitor，中央面板视觉复用本机 Quickshell 的 Cyber-Zen token。
-- 混合内容 Unicode 模糊搜索、图片行内缩略图、文件名与 MIME/类型/大小展示；方向键选择，Enter 或双击恢复后默认尝试粘贴，Esc 关闭，Shift+Delete 删除。
+- 混合内容 Unicode 模糊搜索、图片行内缩略图、文件名与 MIME/类型/大小展示；鼠标在图片缩略图稳定停留后，会在结果区内显示按比例限幅的清晰预览。
+- 方向键选择，Enter 或双击恢复后默认尝试粘贴，Esc 关闭，Shift+Delete 删除；图片预览不会抢占搜索焦点或截获恢复操作。
 - 顶栏 `CLOSE ×`、`Esc`、点击面板外均可关闭；`Mod+V` 建议绑定到 `toggle`，再次按下也会收起。
 - 暂停记录、删除单条、二次确认清空；暂停状态跨重启保存，暂停期间内容不会在恢复后补录。
 - Unix Socket IPC、systemd 用户服务和私有文件权限。
@@ -75,6 +76,7 @@ spawn-at-startup "systemctl" "--user" "start" "niri-clip.service"
 | 关闭 | `Esc`、顶栏 `CLOSE ×`、点击面板外、`niri-clip hide` |
 | 搜索 | 打开后直接输入 |
 | 选择 | `↑` / `↓` |
+| 浏览图片 | 鼠标在图片缩略图或 `IMAGE` 占位区域停留约 160ms |
 | 恢复、关闭并尝试粘贴 | `Enter` 或双击历史行 |
 | 删除当前条目 | `Shift+Delete` 或“删除当前” |
 | 清空全部 | `Ctrl+Shift+Delete` 或两次点击“清空” |

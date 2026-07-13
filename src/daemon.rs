@@ -115,6 +115,31 @@ fn drain_ui(
     while let Ok(action) = receiver.try_recv() {
         match action {
             UiAction::Refresh => refresh(storage, ui),
+            UiAction::Preview(id) if ui.is_visible() => {
+                if !ui.begin_preview(id) {
+                    continue;
+                }
+                let storage = storage.clone();
+                let ui = Rc::downgrade(ui);
+                glib::idle_add_local_once(move || {
+                    let Some(ui) = ui.upgrade() else {
+                        return;
+                    };
+                    if !ui.should_load_preview(id) {
+                        return;
+                    }
+                    let result = load_preview(&storage, id);
+                    match result {
+                        Ok(preview) => ui.finish_preview(id, preview),
+                        Err(error) => {
+                            eprintln!("读取图片预览失败: {error:#}");
+                            ui.fail_preview(id);
+                        }
+                    }
+                });
+            }
+            UiAction::Preview(_) => {}
+            UiAction::HidePreview(id) => ui.hide_preview(id),
             UiAction::Restore(id) if ui.is_visible() => match restore(storage, id) {
                 Ok(()) => {
                     ui.hide();
@@ -257,6 +282,14 @@ fn restore(storage: &Rc<RefCell<Storage>>, id: i64) -> Result<()> {
         .get_content(id)?
         .with_context(|| format!("历史 {id} 不存在"))?;
     clipboard::copy_content(&content)
+}
+
+fn load_preview(storage: &Rc<RefCell<Storage>>, id: i64) -> Result<Option<Vec<u8>>> {
+    Ok(storage
+        .borrow()
+        .get_content(id)?
+        .as_ref()
+        .and_then(crate::media::preview_png))
 }
 
 fn delete(storage: &Rc<RefCell<Storage>>, id: i64) -> Result<bool> {

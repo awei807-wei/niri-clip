@@ -10,15 +10,26 @@ use crate::content::{ClipboardContent, ContentKind};
 
 pub const THUMBNAIL_WIDTH: i32 = 72;
 pub const THUMBNAIL_HEIGHT: i32 = 48;
+pub const PREVIEW_WIDTH: i32 = 320;
+pub const PREVIEW_HEIGHT: i32 = 240;
 
 /// Generates a bounded PNG thumbnail without allocating the source dimensions.
 pub fn thumbnail_png(content: &ClipboardContent) -> Option<Vec<u8>> {
+    bounded_png(content, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+}
+
+/// Generates a bounded PNG preview without allocating the source dimensions.
+pub fn preview_png(content: &ClipboardContent) -> Option<Vec<u8>> {
+    bounded_png(content, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+}
+
+fn bounded_png(content: &ClipboardContent, max_width: i32, max_height: i32) -> Option<Vec<u8>> {
     if content.kind != ContentKind::Image {
         return None;
     }
     let loader = PixbufLoader::new();
-    loader.connect_size_prepared(|loader, width, height| {
-        let (width, height) = fit_dimensions(width, height);
+    loader.connect_size_prepared(move |loader, width, height| {
+        let (width, height) = fit_dimensions(width, height, max_width, max_height);
         loader.set_size(width, height);
     });
     loader.write(&content.bytes).ok()?;
@@ -26,12 +37,12 @@ pub fn thumbnail_png(content: &ClipboardContent) -> Option<Vec<u8>> {
     loader.pixbuf()?.save_to_bufferv("png", &[]).ok()
 }
 
-fn fit_dimensions(width: i32, height: i32) -> (i32, i32) {
+fn fit_dimensions(width: i32, height: i32, max_width: i32, max_height: i32) -> (i32, i32) {
     if width <= 0 || height <= 0 {
-        return (THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+        return (max_width, max_height);
     }
-    let scale = (f64::from(THUMBNAIL_WIDTH) / f64::from(width))
-        .min(f64::from(THUMBNAIL_HEIGHT) / f64::from(height))
+    let scale = (f64::from(max_width) / f64::from(width))
+        .min(f64::from(max_height) / f64::from(height))
         .min(1.0);
     (
         (f64::from(width) * scale).round().max(1.0) as i32,
@@ -47,7 +58,10 @@ mod tests {
 
     use crate::content::{ClipboardContent, ContentFormat, ContentKind};
 
-    use super::{thumbnail_png, THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH};
+    use super::{
+        preview_png, thumbnail_png, PREVIEW_HEIGHT, PREVIEW_WIDTH, THUMBNAIL_HEIGHT,
+        THUMBNAIL_WIDTH,
+    };
 
     fn content(kind: ContentKind, mime_type: &str, bytes: Vec<u8>) -> ClipboardContent {
         ClipboardContent::new(
@@ -84,5 +98,46 @@ mod tests {
 
         let text = content(ContentKind::Text, "text/plain", b"text".to_vec());
         assert!(thumbnail_png(&text).is_none());
+    }
+
+    #[test]
+    fn creates_bounded_png_preview_for_large_image() {
+        let source = Pixbuf::new(Colorspace::Rgb, true, 8, 1200, 600).unwrap();
+        source.fill(0x4a7f6aff);
+        let png = source.save_to_bufferv("png", &[]).unwrap();
+
+        let preview = preview_png(&content(ContentKind::Image, "image/png", png)).unwrap();
+        let loader = PixbufLoader::new();
+        loader.write(&preview).unwrap();
+        loader.close().unwrap();
+        let decoded = loader.pixbuf().unwrap();
+
+        assert!(decoded.width() <= PREVIEW_WIDTH);
+        assert!(decoded.height() <= PREVIEW_HEIGHT);
+        assert_eq!((decoded.width(), decoded.height()), (320, 160));
+    }
+
+    #[test]
+    fn preview_keeps_small_images_at_their_original_dimensions() {
+        let source = Pixbuf::new(Colorspace::Rgb, true, 8, 40, 20).unwrap();
+        source.fill(0x4a7f6aff);
+        let png = source.save_to_bufferv("png", &[]).unwrap();
+
+        let preview = preview_png(&content(ContentKind::Image, "image/png", png)).unwrap();
+        let loader = PixbufLoader::new();
+        loader.write(&preview).unwrap();
+        loader.close().unwrap();
+        let decoded = loader.pixbuf().unwrap();
+
+        assert_eq!((decoded.width(), decoded.height()), (40, 20));
+    }
+
+    #[test]
+    fn invalid_images_and_non_image_content_have_no_preview() {
+        let invalid = content(ContentKind::Image, "image/png", b"not-an-image".to_vec());
+        assert!(preview_png(&invalid).is_none());
+
+        let text = content(ContentKind::Text, "text/plain", b"text".to_vec());
+        assert!(preview_png(&text).is_none());
     }
 }

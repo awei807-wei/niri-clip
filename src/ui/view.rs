@@ -24,6 +24,33 @@ pub(super) struct View {
     pub mode_label: gtk::Label,
     pub status_revealer: gtk::Revealer,
     pub status_label: gtk::Label,
+    pub preview_revealer: gtk::Revealer,
+    pub preview_stack: gtk::Stack,
+    pub preview_picture: gtk::Picture,
+    pub preview_state_title: gtk::Label,
+    pub preview_state_detail: gtk::Label,
+}
+
+struct ContentView {
+    container: gtk::Overlay,
+    stack: gtk::Stack,
+    list: gtk::ListBox,
+    scroller: gtk::ScrolledWindow,
+    state_title: gtk::Label,
+    state_detail: gtk::Label,
+    preview_revealer: gtk::Revealer,
+    preview_stack: gtk::Stack,
+    preview_picture: gtk::Picture,
+    preview_state_title: gtk::Label,
+    preview_state_detail: gtk::Label,
+}
+
+struct PreviewView {
+    revealer: gtk::Revealer,
+    stack: gtk::Stack,
+    picture: gtk::Picture,
+    state_title: gtk::Label,
+    state_detail: gtk::Label,
 }
 
 pub(super) fn build(application: &gtk::Application) -> View {
@@ -35,8 +62,20 @@ pub(super) fn build(application: &gtk::Application) -> View {
     root.append(&search);
     let (status_revealer, status_label) = build_status();
     root.append(&status_revealer);
-    let (stack, list, scroller, state_title, state_detail) = build_content();
-    root.append(&stack);
+    let ContentView {
+        container,
+        stack,
+        list,
+        scroller,
+        state_title,
+        state_detail,
+        preview_revealer,
+        preview_stack,
+        preview_picture,
+        preview_state_title,
+        preview_state_detail,
+    } = build_content();
+    root.append(&container);
     let (footer, pause_button, delete_button, clear_button) = build_footer();
     root.append(&footer);
 
@@ -58,6 +97,11 @@ pub(super) fn build(application: &gtk::Application) -> View {
         mode_label,
         status_revealer,
         status_label,
+        preview_revealer,
+        preview_stack,
+        preview_picture,
+        preview_state_title,
+        preview_state_detail,
     }
 }
 
@@ -137,13 +181,7 @@ fn build_status() -> (gtk::Revealer, gtk::Label) {
     (revealer, label)
 }
 
-fn build_content() -> (
-    gtk::Stack,
-    gtk::ListBox,
-    gtk::ScrolledWindow,
-    gtk::Label,
-    gtk::Label,
-) {
+fn build_content() -> ContentView {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::Single);
     list.set_activate_on_single_click(false);
@@ -178,7 +216,116 @@ fn build_content() -> (
         .build();
     stack.add_named(&scroller, Some("results"));
     stack.add_named(&state_box, Some("state"));
-    (stack, list, scroller, title, detail)
+
+    let PreviewView {
+        revealer: preview_revealer,
+        stack: preview_stack,
+        picture: preview_picture,
+        state_title: preview_state_title,
+        state_detail: preview_state_detail,
+    } = build_preview();
+    let container = gtk::Overlay::new();
+    container.set_vexpand(true);
+    container.set_child(Some(&stack));
+    container.add_overlay(&preview_revealer);
+    container.set_clip_overlay(&preview_revealer, true);
+
+    ContentView {
+        container,
+        stack,
+        list,
+        scroller,
+        state_title: title,
+        state_detail: detail,
+        preview_revealer,
+        preview_stack,
+        preview_picture,
+        preview_state_title,
+        preview_state_detail,
+    }
+}
+
+fn build_preview() -> PreviewView {
+    let picture = gtk::Picture::builder()
+        .can_shrink(true)
+        .content_fit(gtk::ContentFit::Contain)
+        .build();
+    picture.add_css_class("image-preview-picture");
+
+    let loading = preview_state("LOADING PREVIEW", "正在读取完整图片…", false);
+    let error_title = gtk::Label::new(Some("PREVIEW UNAVAILABLE"));
+    error_title.add_css_class("image-preview-state-title");
+    let error_detail = gtk::Label::new(Some("无法读取或解码图片；仍可按 Enter 恢复。"));
+    error_detail.set_wrap(true);
+    error_detail.set_justify(gtk::Justification::Center);
+    error_detail.set_max_width_chars(32);
+    error_detail.add_css_class("image-preview-state-detail");
+    let error = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    error.set_halign(gtk::Align::Center);
+    error.set_valign(gtk::Align::Center);
+    error.add_css_class("image-preview-state");
+    error.add_css_class("error");
+    error.append(&error_title);
+    error.append(&error_detail);
+
+    let stack = gtk::Stack::builder()
+        .hexpand(true)
+        .vexpand(true)
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .transition_duration(140)
+        .build();
+    stack.add_named(&loading, Some("loading"));
+    stack.add_named(&picture, Some("image"));
+    stack.add_named(&error, Some("error"));
+    stack.set_visible_child_name("loading");
+
+    let panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    panel.set_size_request(320, 240);
+    panel.set_can_target(false);
+    panel.set_focusable(false);
+    panel.add_css_class("image-preview-panel");
+    panel.append(&stack);
+
+    let revealer = gtk::Revealer::builder()
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Start)
+        .margin_top(11)
+        .margin_end(25)
+        .transition_type(gtk::RevealerTransitionType::Crossfade)
+        .transition_duration(140)
+        .child(&panel)
+        .build();
+    revealer.set_can_target(false);
+    revealer.set_focusable(false);
+    revealer.add_css_class("image-preview-revealer");
+
+    PreviewView {
+        revealer,
+        stack,
+        picture,
+        state_title: error_title,
+        state_detail: error_detail,
+    }
+}
+
+fn preview_state(title: &str, detail: &str, error: bool) -> gtk::Box {
+    let container = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    container.set_halign(gtk::Align::Center);
+    container.set_valign(gtk::Align::Center);
+    container.add_css_class("image-preview-state");
+    if error {
+        container.add_css_class("error");
+    }
+    let title = gtk::Label::new(Some(title));
+    title.add_css_class("image-preview-state-title");
+    let detail = gtk::Label::new(Some(detail));
+    detail.set_wrap(true);
+    detail.set_justify(gtk::Justification::Center);
+    detail.set_max_width_chars(32);
+    detail.add_css_class("image-preview-state-detail");
+    container.append(&title);
+    container.append(&detail);
+    container
 }
 
 fn build_footer() -> (gtk::Box, gtk::ToggleButton, gtk::Button, gtk::Button) {

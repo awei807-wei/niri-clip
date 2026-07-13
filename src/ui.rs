@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 mod presentation;
+mod preview;
 mod signals;
 mod view;
 
@@ -20,6 +21,8 @@ use crate::storage::HistoryItem;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiAction {
     Refresh,
+    Preview(i64),
+    HidePreview(i64),
     Restore(i64),
     Delete(i64),
     Clear,
@@ -42,6 +45,8 @@ pub struct OverlayUi {
     mode_label: gtk::Label,
     status_revealer: gtk::Revealer,
     status_label: gtk::Label,
+    preview: preview::PreviewController,
+    preview_generation: Rc<Cell<u64>>,
     items: RefCell<Vec<HistoryItem>>,
     visible_ids: RefCell<Vec<i64>>,
     actions: Sender<UiAction>,
@@ -71,6 +76,14 @@ impl OverlayUi {
             mode_label: widgets.mode_label,
             status_revealer: widgets.status_revealer,
             status_label: widgets.status_label,
+            preview: preview::PreviewController::new(
+                widgets.preview_revealer,
+                widgets.preview_stack,
+                widgets.preview_picture,
+                widgets.preview_state_title,
+                widgets.preview_state_detail,
+            ),
+            preview_generation: Rc::new(Cell::new(0)),
             items: RefCell::new(Vec::new()),
             visible_ids: RefCell::new(Vec::new()),
             actions,
@@ -98,6 +111,7 @@ impl OverlayUi {
     }
 
     pub fn hide(&self) {
+        self.cancel_preview();
         self.window.set_keyboard_mode(KeyboardMode::None);
         self.window.set_visible(false);
         self.search.set_text("");
@@ -109,6 +123,9 @@ impl OverlayUi {
     }
 
     pub fn set_items(&self, items: Vec<HistoryItem>) {
+        self.cancel_preview();
+        self.preview
+            .retain(|id| items.iter().any(|item| item.id == id));
         self.clear_button.set_sensitive(!items.is_empty());
         self.items.replace(items);
         self.apply_filter();
@@ -183,7 +200,11 @@ impl OverlayUi {
 
     fn show_matches(&self, items: &[HistoryItem], matches: &[usize]) {
         for index in matches {
-            self.list.append(&presentation::history_row(&items[*index]));
+            self.list.append(&presentation::history_row(
+                &items[*index],
+                &self.actions,
+                &self.preview_generation,
+            ));
         }
         self.stack.set_visible_child_name("results");
         if let Some(first) = self.list.row_at_index(0) {
@@ -255,6 +276,7 @@ impl OverlayUi {
     }
 
     fn delete_selected(&self) {
+        self.cancel_preview();
         let Some(row) = self.list.selected_row() else {
             self.flash("当前没有可删除的历史。", true);
             return;
@@ -266,6 +288,7 @@ impl OverlayUi {
     }
 
     fn request_clear(self: &Rc<Self>) {
+        self.cancel_preview();
         if self.items.borrow().is_empty() {
             self.flash("历史已经是空的。", false);
             return;
@@ -290,6 +313,32 @@ impl OverlayUi {
         self.clear_armed.set(false);
         self.clear_button.set_label("CLEAR");
         self.clear_button.remove_css_class("danger-button");
+    }
+
+    pub(super) fn begin_preview(&self, id: i64) -> bool {
+        self.preview.begin(id) == preview::PreviewStart::Load
+    }
+
+    pub(super) fn should_load_preview(&self, id: i64) -> bool {
+        self.preview.should_load(id)
+    }
+
+    pub(super) fn finish_preview(&self, id: i64, preview: Option<Vec<u8>>) {
+        self.preview.finish(id, preview);
+    }
+
+    pub(super) fn fail_preview(&self, id: i64) {
+        self.preview.fail(id);
+    }
+
+    pub(super) fn hide_preview(&self, id: i64) {
+        self.preview.hide(id);
+    }
+
+    pub(super) fn cancel_preview(&self) {
+        self.preview_generation
+            .set(self.preview_generation.get().wrapping_add(1));
+        self.preview.cancel();
     }
 }
 

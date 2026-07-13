@@ -153,6 +153,39 @@ window {
   border-radius: 2px;
 }
 
+.image-preview-panel {
+  min-width: 320px;
+  min-height: 240px;
+  background-color: @zen_void;
+  border: 1px solid @zen_ash;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.image-preview-picture {
+  background-color: @zen_void;
+}
+
+.image-preview-state {
+  padding: 22px;
+}
+
+.image-preview-state-title {
+  color: @zen_cloud;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.image-preview-state.error .image-preview-state-title {
+  color: @zen_danger;
+}
+
+.image-preview-state-detail {
+  color: @zen_cloud;
+  font-size: 10px;
+}
+
 .history-list {
   background-color: @zen_ink;
 }
