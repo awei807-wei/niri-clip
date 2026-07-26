@@ -84,27 +84,33 @@ window {
   min-height: 28px;
   padding: 0 9px;
   color: @zen_cloud;
+  background-image: none;
   background-color: transparent;
   border: 1px solid @zen_mist;
   border-radius: 2px;
   box-shadow: none;
+  text-shadow: none;
+  -gtk-icon-shadow: none;
   font-size: 10px;
   font-weight: 600;
 }
 
 .quiet-button:hover {
   color: @zen_snow;
+  background-image: none;
   background-color: @zen_stone;
   border-color: @zen_ash;
 }
 
 .quiet-button:active {
   color: @zen_pure;
+  background-image: none;
   background-color: @zen_mist;
 }
 
 .quiet-button:checked {
   color: @zen_accent;
+  background-image: none;
   background-color: @zen_stone;
   border-color: @zen_accent;
 }
@@ -126,6 +132,7 @@ window {
 .clear-button:hover,
 .danger-button {
   color: @zen_danger;
+  background-image: none;
   background-color: rgba(153, 64, 64, 0.18);
   border-color: @zen_danger;
 }
