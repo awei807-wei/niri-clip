@@ -12,20 +12,20 @@
 - 0.1.0 文字数据库在首次启动时原位迁移；历史列表只加载搜索摘要和最大 72×48 的图片缩略图，完整媒体 BLOB 仅在恢复单条记录或悬停预览时按 ID 读取。
 - 常驻 GTK4 Overlay；显示前读取 niri 的 focused output 并映射到 GDK monitor，中央面板视觉复用本机 Quickshell 的 Cyber-Zen token。
 - 混合内容 Unicode 模糊搜索、图片行内缩略图、文件名与 MIME/类型/大小展示；鼠标在图片缩略图稳定停留后，会在结果区内显示按比例限幅的清晰预览。
-- 方向键选择，Enter 或双击恢复后默认尝试粘贴，Esc 关闭，Shift+Delete 删除；图片预览不会抢占搜索焦点或截获恢复操作。
+- 方向键选择，Enter 或双击恢复剪贴板内容，Esc 关闭，Shift+Delete 删除；恢复后需要在目标应用中手动粘贴，图片预览不会抢占搜索焦点或截获恢复操作。
 - 顶栏 `CLOSE ×`、`Esc`、点击面板外均可关闭；`Mod+V` 建议绑定到 `toggle`，再次按下也会收起。
 - 暂停记录、删除单条、二次确认清空；暂停状态跨重启保存，暂停期间内容不会在恢复后补录。
 - Unix Socket IPC、systemd 用户服务和私有文件权限。
 
-当前不处理 X11、Flatpak Portal 临时文件传输句柄、来源应用、云同步、托盘或设置 GUI。Overlay 不播放视频；视频文件按 URI 恢复，来源直接提供的原始 `video/*` 仅在单条上限内保存。Wayland 没有跨工具包的统一粘贴动作，自动粘贴属于尽力执行：失败时内容仍已恢复到剪贴板，不显示错误。
+当前不处理 X11、Flatpak Portal 临时文件传输句柄、来源应用、云同步、托盘或设置 GUI。Overlay 不播放视频；视频文件按 URI 恢复，来源直接提供的原始 `video/*` 仅在单条上限内保存。恢复操作只重新取得 clipboard 所有权，不会模拟键盘输入；用户可在 Overlay 关闭后手动粘贴。
 
 ## Arch Linux 依赖
 
 ```bash
-sudo pacman -S --needed base-devel rust gtk4 gtk4-layer-shell sqlite wayland wayland-protocols wtype
+sudo pacman -S --needed base-devel rust gtk4 gtk4-layer-shell sqlite wayland wayland-protocols
 ```
 
-`wtype` 用于显式恢复后的自动粘贴。`noto-fonts` 和 `noto-fonts-cjk` 是推荐字体；`wl-clipboard` 只用于手工冒烟测试，不是运行时依赖。
+Overlay 关闭后可在目标应用中手动粘贴。`noto-fonts` 和 `noto-fonts-cjk` 是推荐字体；`wl-clipboard` 只用于手工冒烟测试，不是运行时依赖。
 
 ## 构建与安装
 
@@ -77,7 +77,7 @@ spawn-at-startup "systemctl" "--user" "start" "niri-clip.service"
 | 搜索 | 打开后直接输入 |
 | 选择 | `↑` / `↓` |
 | 浏览图片 | 鼠标在图片缩略图或 `IMAGE` 占位区域停留约 160ms |
-| 恢复、关闭并尝试粘贴 | `Enter` 或双击历史行 |
+| 恢复并关闭 Overlay（随后手动粘贴） | `Enter` 或双击历史行 |
 | 删除当前条目 | `Shift+Delete` 或“删除当前” |
 | 清空全部 | `Ctrl+Shift+Delete` 或两次点击“清空” |
 | 暂停/恢复 | Overlay 底栏按钮或 `niri-clip pause/resume` |
@@ -90,7 +90,6 @@ spawn-at-startup "systemctl" "--user" "start" "niri-clip.service"
 
 - `NIRI_CLIP_MAX_ITEMS`：历史数量上限，必须大于 0，默认 `750`。
 - `NIRI_CLIP_MAX_BYTES`：单条剪贴板载荷字节上限，必须大于 0，默认 `5000000`。文件 URI 很小，不受目标文件大小影响；提高该值会允许更大的原始图片/媒体进入 SQLite。
-- `NIRI_CLIP_PASTE_SHORTCUT`：自动粘贴快捷键，默认 `auto`。自动模式对已知终端使用 `Ctrl+Shift+V`，其他应用使用 `Ctrl+V`；可设为 `ctrl-v`、`ctrl-shift-v`、`shift-insert` 或 `off`。
 - `NIRI_CLIP_DATA_DIR`：覆盖数据目录，主要用于测试。
 - `NIRI_CLIP_RUNTIME_DIR`：覆盖运行目录基路径，主要用于测试。
 
@@ -121,7 +120,7 @@ cargo build --release --locked
 1. 执行 `wl-copy '唯一测试文字 alpha 中文'`。
 2. 按 `Mod+V`，确认 Overlay 位于当前显示器中央。
 3. 输入 `alpha`，确认只保留匹配项。
-4. 按 Enter，确认 Overlay 关闭且文字进入原输入位置；再执行 `wl-paste --no-newline`，确认剪贴板输出逐字节一致。
+4. 按 Enter，确认 Overlay 关闭；在原输入位置手动粘贴后，再执行 `wl-paste --no-newline`，确认剪贴板输出逐字节一致。
 
 图片：
 
@@ -133,7 +132,7 @@ wl-paste --type image/png > /tmp/niri-clip-restored.png
 cmp test.png /tmp/niri-clip-restored.png
 ```
 
-视频文件引用：在文件管理器复制一个 `.mp4`，打开 Overlay 确认文件名和 `FILES` 类型；按 Enter 后在目标目录粘贴，确认恢复为复制而不是移动。也可用 `wl-copy --type text/uri-list` 与 `wl-paste --type text/uri-list` 做字节级协议检查。
+视频文件引用：在文件管理器复制一个 `.mp4`，打开 Overlay 确认文件名和 `FILES` 类型；按 Enter 后在目标目录手动粘贴，确认恢复为复制而不是移动。也可用 `wl-copy --type text/uri-list` 与 `wl-paste --type text/uri-list` 做字节级协议检查。
 
 ## 故障排查
 
@@ -142,7 +141,7 @@ cmp test.png /tmp/niri-clip-restored.png
 - 日志显示轮询降级：当前 compositor 没有暴露 ext/wlr data-control；niri 正常应提供原生后端。
 - 图片只显示 `IMAGE` 标签：内容仍已保存并可恢复，但当前 GdkPixbuf 解码器无法生成缩略图；检查 MIME 是否与真实图片格式一致。
 - 大型原始媒体没有进入历史：它超过 `NIRI_CLIP_MAX_BYTES` 或 2 秒传输限制；复制媒体文件本身时应使用文件管理器提供的 URI 列表。
-- 自动粘贴没有动作：先确认已安装 `wtype`。终端默认使用 `Ctrl+Shift+V`，普通应用默认使用 `Ctrl+V`；特殊应用可通过 `NIRI_CLIP_PASTE_SHORTCUT=shift-insert` 等值覆盖。失败不会影响剪贴板恢复。
+- 恢复只更新 Wayland clipboard；若目标应用未接收，请在 Overlay 关闭后手动粘贴。
 - `niri msg layers` 应显示 namespace `niri-clip`、layer `Overlay`、keyboard interactivity `Exclusive`；关闭后该条目应消失。
 - GTK 启动时若错误指向外部主题的 `colors.css`，属于当前 GTK 主题语法问题；项目自带样式错误会显示为 `<data>`。
 

@@ -143,10 +143,6 @@ fn drain_ui(
             UiAction::Restore(id) if ui.is_visible() => match restore(storage, id) {
                 Ok(()) => {
                     ui.hide();
-                    let ui = Rc::downgrade(ui);
-                    crate::auto_paste::schedule(move || {
-                        ui.upgrade().is_some_and(|ui| !ui.is_visible())
-                    });
                 }
                 Err(error) => ui.flash(&format!("恢复失败: {error:#}"), true),
             },

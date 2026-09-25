@@ -23,7 +23,7 @@ window {
 }
 
 .overlay-backdrop {
-  background-color: rgba(8, 8, 8, 0.28);
+  background-color: transparent;
 }
 
 .overlay-shell {

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-mod auto_paste;
-
 pub mod clipboard;
 pub mod config;
 pub mod content;

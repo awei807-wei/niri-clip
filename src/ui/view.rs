@@ -331,7 +331,7 @@ fn preview_state(title: &str, detail: &str, error: bool) -> gtk::Box {
 fn build_footer() -> (gtk::Box, gtk::ToggleButton, gtk::Button, gtk::Button) {
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     footer.add_css_class("footer");
-    let help = gtk::Label::new(Some("↑↓ SELECT  ·  ENTER PASTE  ·  ESC CLOSE"));
+    let help = gtk::Label::new(Some("↑↓ SELECT  ·  ENTER RESTORE  ·  ESC CLOSE"));
     help.set_xalign(0.0);
     help.set_hexpand(true);
     help.add_css_class("key-help");
